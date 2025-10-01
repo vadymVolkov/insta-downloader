@@ -11,6 +11,7 @@ from typing import Dict, Tuple, Any, Optional
 from pathlib import Path
 import json
 import httpx
+import glob
 
 class InstagramService:
     """
@@ -37,39 +38,112 @@ class InstagramService:
         self.logger = logging.getLogger(__name__)
         self.logger.info("InstagramService initialized | media_dir=%s", str(self.media_dir))
         
-        # Optional login if credentials are provided via environment variables.
-        # Also support loading/saving a session file to reduce login frequency.
-        username = os.getenv("INSTAGRAM_USERNAME")
-        password = os.getenv("INSTAGRAM_PASSWORD")
-        # Resolve session file to an absolute path in project root by default
-        session_file_env = os.getenv("INSTALOADER_SESSION_FILE")
-        default_root = Path(os.getenv("PROJECT_ROOT", Path.cwd()))
-        session_path = Path(session_file_env) if session_file_env else (default_root / ".instaloader-session")
-        session_path = session_path if session_path.is_absolute() else (default_root / session_path)
-        if username:
-            try:
-                # Try to load session if it exists
-                if session_path.exists():
-                    self.logger.info("Loading Instagram session | user=%s, session_file=%s", username, str(session_path))
-                    with open(session_path, "rb") as sf:
-                        self.loader.context.load_session_from_file(username, sessionfile=sf)
-                    self.logger.info("Session loaded successfully")
-                elif password:
-                    # Fallback to fresh login and save session for future runs
-                    self.logger.info("Performing Instagram login | user=%s", username)
-                    self.loader.login(username, password)
-                    session_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(session_path, "wb") as sf:
-                        self.loader.context.save_session_to_file(sessionfile=sf)
-                    self.logger.info("Login successful, session saved | session_file=%s", str(session_path))
-            except Exception as e:
-                # Non-fatal: proceed unauthenticated; requests may fail for private/limited content
-                self.logger.warning("Auth/session setup failed, proceeding unauthenticated | error=%s", str(e))
-        else:
-            if session_path.exists():
-                self.logger.warning("INSTAGRAM_USERNAME is not set; cannot load session file at %s", str(session_path))
-            else:
-                self.logger.info("No INSTAGRAM_USERNAME provided, working unauthenticated")
+        # Session-based authentication
+        self._setup_session_auth()
+        
+        # File rotation settings
+        self.max_files = 10  # Keep only last 10 videos
+    
+    def _setup_session_auth(self):
+        """
+        Setup Instagram authentication using session file.
+        Attempts to load existing session from .instaloader-session file.
+        """
+        # Path to session file in project root
+        project_root = Path(__file__).parent.parent.parent
+        session_file = project_root / ".instaloader-session"
+        
+        self.logger.info("🔐 Starting Instagram authentication process...")
+        self.logger.info("📁 Session file path: %s", str(session_file))
+        
+        # Check if session file exists
+        if not session_file.exists():
+            self.logger.warning("⚠️  Session file not found at: %s", str(session_file))
+            self.logger.info("❌ Authentication failed: No session file available")
+            self.logger.info("💡 Working in unauthenticated mode - some content may be inaccessible")
+            return
+        
+        # Check if session file is readable
+        if not session_file.is_file():
+            self.logger.error("❌ Authentication failed: Session file is not a regular file")
+            return
+        
+        # Check file size
+        try:
+            file_size = session_file.stat().st_size
+            self.logger.info("📊 Session file size: %d bytes", file_size)
+            if file_size == 0:
+                self.logger.warning("⚠️  Session file is empty")
+                self.logger.info("❌ Authentication failed: Empty session file")
+                return
+        except Exception as e:
+            self.logger.error("❌ Authentication failed: Cannot read session file | error=%s", str(e))
+            return
+        
+        # Try to load session
+        try:
+            self.logger.info("🔄 Attempting to load Instagram session...")
+            
+            # Get username from environment or use default
+            username = os.getenv("INSTAGRAM_USERNAME", "default_user")
+            self.logger.info("👤 Loading session for user: %s", username)
+            
+            with open(session_file, "rb") as sf:
+                self.loader.context.load_session_from_file(username, sessionfile=sf)
+            
+            self.logger.info("✅ Instagram authentication successful!")
+            self.logger.info("🎉 Session loaded successfully for user: %s", username)
+            self.logger.info("🚀 Ready to download Instagram content")
+            
+        except Exception as e:
+            self.logger.error("❌ Authentication failed: Cannot load session | error=%s", str(e))
+            self.logger.warning("⚠️  Session file may be corrupted or invalid")
+            self.logger.info("💡 Working in unauthenticated mode - some content may be inaccessible")
+    
+    def _cleanup_old_files(self):
+        """
+        Clean up old video files, keeping only the most recent max_files videos.
+        Files are sorted by modification time (newest first).
+        """
+        try:
+            # Get all video files in media directory
+            video_files = list(self.media_dir.glob("*.mp4"))
+            
+            if len(video_files) <= self.max_files:
+                return  # No cleanup needed
+            
+            # Sort by modification time (newest first)
+            video_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+            
+            # Files to delete (oldest ones)
+            files_to_delete = video_files[self.max_files:]
+            
+            deleted_count = 0
+            for file_path in files_to_delete:
+                try:
+                    # Delete associated files (.json, .txt)
+                    base_name = file_path.stem
+                    json_file = self.media_dir / f"{base_name}.json"
+                    txt_file = self.media_dir / f"{base_name}.txt"
+                    
+                    # Delete main video file
+                    file_path.unlink()
+                    deleted_count += 1
+                    
+                    # Delete associated metadata files
+                    if json_file.exists():
+                        json_file.unlink()
+                    if txt_file.exists():
+                        txt_file.unlink()
+                        
+                except Exception as e:
+                    self.logger.warning("Failed to delete file %s: %s", file_path, str(e))
+            
+            if deleted_count > 0:
+                self.logger.info("File cleanup completed: deleted %d old video files", deleted_count)
+                
+        except Exception as e:
+            self.logger.error("Error during file cleanup: %s", str(e))
         
     def extract_shortcode_from_url(self, url: str) -> str:
         """
@@ -195,11 +269,14 @@ class InstagramService:
             except Exception:
                 pass
 
+            # Clean up old files after successful download
+            self._cleanup_old_files()
+            
             return target_mp4.name, metadata
 
         except (LoginRequiredException, QueryReturnedForbiddenException) as e:
             # Typical 403/authorization errors
-            raise Exception("Instagram returned 403/authorization error. Provide credentials or a valid session.") from e
+            raise Exception("Instagram returned 403/authorization error. The content may be private or restricted.") from e
         except InstaloaderException as e:
             # Other instaloader-level errors
             raise Exception("Fetching Post metadata failed. The URL may be invalid/private or rate-limited.") from e

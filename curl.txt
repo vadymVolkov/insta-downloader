@@ -1,1 +1,0 @@
-curl -s -X POST http://localhost:8000/api/download/ -H "Content-Type: application/json" -d '{"url":"https://www.instagram.com/reel/DPFJiwpDiBL/?utm_source=ig_web_copy_link"}' 
