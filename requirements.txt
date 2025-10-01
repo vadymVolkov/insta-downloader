@@ -1,0 +1,15 @@
+# Core FastAPI dependencies
+fastapi==0.118.0
+uvicorn==0.37.0
+
+# Instagram downloading
+instaloader==4.14.2
+
+# TikTok downloading  
+yt-dlp==2025.9.26
+
+# HTTP client
+httpx==0.28.1
+
+# Data validation
+pydantic==2.11.9
