@@ -46,31 +46,15 @@ async def download_video(
     try:
         logger.info("Processing download request for URL: %s", request.url)
         
-        # Validate URL format and platform
-        is_valid, platform, error_message = validate_url(request.url)
-        if not is_valid:
-            logger.warning("Invalid URL provided: %s - %s", request.url, error_message)
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "Invalid URL",
-                    "message": error_message,
-                    "supported_formats": [
-                        "Instagram: https://www.instagram.com/p/... or https://www.instagram.com/reel/...",
-                        "TikTok: https://www.tiktok.com/@user/video/... or https://vm.tiktok.com/..."
-                    ]
-                }
-            )
-        
-        logger.info("URL validation successful. Platform: %s", platform)
+        # URL validation is handled by Pydantic schema
         raw = str(request.url)
         lowered = raw.lower()
         
-        # Determine platform and call appropriate service based on validation
-        if platform == "instagram":
+        # Determine platform and call appropriate service
+        if "instagram.com" in lowered:
             logger.info("Processing Instagram URL with Instagram service")
             _, metadata = await ig_service.download_post(raw)
-        elif platform == "tiktok":
+        elif "tiktok.com" in lowered or "vm.tiktok.com" in lowered or "vt.tiktok.com" in lowered:
             logger.info("Processing TikTok URL with TikTok service")
             _, metadata = await tt_service.download_post(raw)
         else:
