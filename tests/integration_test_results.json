@@ -1,0 +1,44 @@
+{
+  "total_tests": 6,
+  "passed_tests": 6,
+  "failed_tests": 0,
+  "success_rate": 100.0,
+  "results": [
+    {
+      "test": "FFmpeg Availability",
+      "success": true,
+      "details": "FFmpeg is available",
+      "timestamp": 1759404256.4807098
+    },
+    {
+      "test": "Basic Audio Extraction",
+      "success": true,
+      "details": "Extracted from httpsvmtiktokcomZMAac7Uhm.mp4",
+      "timestamp": 1759404257.372391
+    },
+    {
+      "test": "API Response Structure",
+      "success": true,
+      "details": "audio_url field present: True",
+      "timestamp": 1759404257.392035
+    },
+    {
+      "test": "Static File Serving",
+      "success": true,
+      "details": "Video: True, Audio: False",
+      "timestamp": 1759404257.4001138
+    },
+    {
+      "test": "Error Handling",
+      "success": true,
+      "details": "Invalid URL handled correctly: 422",
+      "timestamp": 1759404257.4103522
+    },
+    {
+      "test": "Performance Basic",
+      "success": true,
+      "details": "Response time: 0.01s",
+      "timestamp": 1759404257.42012
+    }
+  ]
+}

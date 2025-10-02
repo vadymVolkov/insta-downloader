@@ -13,3 +13,6 @@ httpx==0.28.1
 
 # Data validation
 pydantic==2.11.9
+
+# Audio processing
+ffmpeg-python==0.2.0

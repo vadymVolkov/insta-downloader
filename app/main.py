@@ -1,34 +1,189 @@
-from fastapi import FastAPI
+"""
+Main application module for Instagram Downloader API.
+Provides centralized application initialization, configuration, and lifecycle management.
+"""
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import logging
-from logging.handlers import RotatingFileHandler
 import os
+import asyncio
+import signal
+import sys
 from datetime import datetime
+from typing import Optional
+from contextlib import asynccontextmanager
+
 from app.services import InstagramService, TikTokService
+from app.services.ffmpeg_utils import verify_ffmpeg_installation, cleanup_audio_files
+from app.config import AppConfig
+from app.utils.logger import get_logger, get_request_logger, get_service_logger
+from app.utils.exceptions import (
+    InstagramDownloaderError, ServiceError, ConfigurationError,
+    handle_instagram_downloader_error, handle_generic_exception, handle_http_exception
+)
+from app.middleware.logging_middleware import LoggingMiddleware
 
-# Note: StaticFiles will be mounted after static setup task
-# from fastapi.staticfiles import StaticFiles
 
-def log_to_file(message: str, log_path: str):
+class ApplicationManager:
     """
-    Direct file writing function that forces immediate disk write.
+    Manages application lifecycle, services, and background tasks.
     """
-    try:
-        with open(log_path, 'a', encoding='utf-8') as f:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
-            f.write(f"{timestamp} - app.main - INFO - {message}\n")
-            f.flush()
-            os.fsync(f.fileno())
-    except Exception as e:
-        print(f"Error writing to log file: {e}")
+    
+    def __init__(self):
+        self.logger = get_logger("app.manager")
+        self.instagram_service: Optional[InstagramService] = None
+        self.tiktok_service: Optional[TikTokService] = None
+        self.cleanup_task: Optional[asyncio.Task] = None
+        self._shutdown_event = asyncio.Event()
+    
+    def log_to_file(self, message: str, log_path: str):
+        """
+        Direct file writing function that forces immediate disk write.
+        """
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
+                f.write(f"{timestamp} - app.main - INFO - {message}\n")
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception as e:
+            print(f"Error writing to log file: {e}")
+    
+    async def initialize_services(self):
+        """
+        Initialize all application services with proper error handling.
+        """
+        # Initialize Instagram service
+        self.logger.info("Initializing Instagram service")
+        try:
+            self.instagram_service = InstagramService()
+            self.logger.info("Instagram service initialized successfully")
+        except Exception as e:
+            self.logger.error("Failed to initialize Instagram service", error=str(e))
+            raise ServiceError("Instagram", f"Service initialization failed: {str(e)}")
+        
+        # Initialize TikTok service
+        self.logger.info("Initializing TikTok service")
+        try:
+            self.tiktok_service = TikTokService()
+            self.logger.info("TikTok service initialized successfully")
+        except Exception as e:
+            self.logger.error("Failed to initialize TikTok service", error=str(e))
+            raise ServiceError("TikTok", f"Service initialization failed: {str(e)}")
+    
+    def get_service_status(self) -> dict:
+        """
+        Get the current status of all services.
+        """
+        return {
+            "instagram_service": "initialized" if self.instagram_service else "not_initialized",
+            "tiktok_service": "initialized" if self.tiktok_service else "not_initialized",
+            "cleanup_task": "running" if self.cleanup_task and not self.cleanup_task.done() else "stopped"
+        }
+    
+    async def start_background_tasks(self):
+        """
+        Start background tasks and scheduled operations.
+        """
+        log_path = os.path.join(AppConfig.LOG_DIR, "app.log")
+        
+        # Start scheduled audio cleanup background task
+        self.log_to_file("🧹 Starting scheduled audio cleanup background task...", log_path)
+        self.cleanup_task = asyncio.create_task(self._scheduled_audio_cleanup())
+        self.log_to_file("✅ Scheduled audio cleanup task started", log_path)
+    
+    async def _scheduled_audio_cleanup(self):
+        """
+        Background task that runs audio cleanup at configured intervals.
+        """
+        log_path = os.path.join(AppConfig.LOG_DIR, "app.log")
+        
+        # Check if scheduled cleanup is enabled
+        if not AppConfig.AUDIO.ENABLE_SCHEDULED_CLEANUP:
+            self.log_to_file("ℹ️ Scheduled audio cleanup is disabled", log_path)
+            return
+        
+        while not self._shutdown_event.is_set():
+            try:
+                # Wait for configured interval or shutdown signal
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=AppConfig.AUDIO.AUDIO_CLEANUP_INTERVAL
+                )
+                break  # Shutdown requested
+            except asyncio.TimeoutError:
+                # Timeout reached, run cleanup
+                pass
+            
+            try:
+                self.log_to_file("🧹 Running scheduled audio cleanup...", log_path)
+                deleted_files = cleanup_audio_files()
+                
+                if deleted_files:
+                    self.log_to_file(f"✅ Scheduled cleanup completed: removed {len(deleted_files)} old audio files", log_path)
+                else:
+                    self.log_to_file("ℹ️ Scheduled cleanup: no audio files needed cleanup", log_path)
+                    
+            except Exception as e:
+                error_msg = f"❌ Error in scheduled audio cleanup: {str(e)}"
+                self.log_to_file(error_msg, log_path)
+                # Continue running even if cleanup fails
+                await asyncio.sleep(300)  # Wait 5 minutes before retrying
+    
+    async def shutdown(self):
+        """
+        Gracefully shutdown all services and background tasks.
+        """
+        log_path = os.path.join(AppConfig.LOG_DIR, "app.log")
+        self.log_to_file("🛑 Starting graceful shutdown...", log_path)
+        
+        # Signal shutdown to background tasks
+        self._shutdown_event.set()
+        
+        # Cancel background tasks
+        if self.cleanup_task and not self.cleanup_task.done():
+            self.cleanup_task.cancel()
+            try:
+                await self.cleanup_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Cleanup services
+        if self.instagram_service:
+            self.log_to_file("🔧 Shutting down Instagram service...", log_path)
+            # Add any service-specific cleanup here
+        
+        if self.tiktok_service:
+            self.log_to_file("🔧 Shutting down TikTok service...", log_path)
+            # Add any service-specific cleanup here
+        
+        self.log_to_file("✅ Graceful shutdown completed", log_path)
 
-def create_app() -> FastAPI:
+
+# Global application manager instance
+app_manager = ApplicationManager()
+
+
+def setup_signal_handlers():
     """
-    Create and configure the FastAPI application instance.
+    Setup signal handlers for graceful shutdown.
     """
-    # File logging setup - simple file handler with immediate writing
-    log_dir = os.getenv("LOG_DIR", "logs")
+    def signal_handler(signum, frame):
+        print(f"\n🛑 Received signal {signum}, initiating graceful shutdown...")
+        # Signal the application manager to shutdown
+        asyncio.create_task(app_manager.shutdown())
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+def setup_logging():
+    """
+    Configure logging based on application settings.
+    """
+    log_dir = AppConfig.LOG_DIR
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, "app.log")
     
@@ -36,62 +191,109 @@ def create_app() -> FastAPI:
     for h in list(logging.root.handlers):
         logging.root.removeHandler(h)
     
-    # Create simple file handler with immediate writing (delay=False forces immediate file opening)
-    handler = logging.FileHandler(log_path, mode='a', encoding='utf-8', delay=False)
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    handler.setFormatter(formatter)
-    logging.root.setLevel(logging.INFO)
-    logging.root.addHandler(handler)
+    # Set log level from configuration
+    log_level = getattr(logging, AppConfig.LOGGING.LOG_LEVEL.upper(), logging.INFO)
+    logging.root.setLevel(log_level)
     
-    # Console handler removed to minimize terminal output
+    # File logging (if enabled)
+    if AppConfig.LOGGING.ENABLE_FILE_LOGGING:
+        handler = logging.FileHandler(log_path, mode='a', encoding='utf-8', delay=False)
+        formatter = logging.Formatter(AppConfig.LOGGING.LOG_FORMAT)
+        handler.setFormatter(formatter)
+        logging.root.addHandler(handler)
+        
+        # Force immediate writing by disabling buffering
+        handler.stream.reconfigure(line_buffering=True)
     
-    # Force immediate writing by disabling buffering
-    import sys
-    handler.stream.reconfigure(line_buffering=True)
+    # Console logging (if enabled)
+    if AppConfig.LOGGING.ENABLE_CONSOLE_LOGGING:
+        console_handler = logging.StreamHandler()
+        console_formatter = logging.Formatter(AppConfig.LOGGING.LOG_FORMAT)
+        console_handler.setFormatter(console_formatter)
+        logging.root.addHandler(console_handler)
 
-    app = FastAPI(title="Instagram Downloader API", version="0.1.0")
 
-    # Minimal CORS setup for local development
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan manager for startup and shutdown events.
+    """
+    # Startup
+    log_path = os.path.join(AppConfig.LOG_DIR, "app.log")
+    app_manager.log_to_file("🚀 Starting Instagram Downloader API...", log_path)
+    
+    # Validate configuration
+    app_manager.log_to_file("🔧 Validating configuration...", log_path)
+    config_errors = AppConfig.validate_config()
+    if config_errors:
+        error_msg = "Configuration validation failed:\n" + "\n".join(config_errors)
+        app_manager.log_to_file(f"❌ {error_msg}", log_path)
+        raise RuntimeError(error_msg)
+    
+    # Log configuration summary
+    config_summary = AppConfig.get_config_summary()
+    app_manager.log_to_file(f"📋 Configuration: {config_summary}", log_path)
+    
+    # Check FFmpeg availability
+    app_manager.log_to_file("🔧 Checking FFmpeg availability...", log_path)
+    try:
+        if verify_ffmpeg_installation():
+            app_manager.log_to_file("✅ FFmpeg is available for audio extraction", log_path)
+        else:
+            app_manager.log_to_file("⚠️ FFmpeg not available - audio extraction will be disabled", log_path)
+    except Exception as e:
+        error_msg = f"❌ Error checking FFmpeg: {str(e)}"
+        app_manager.log_to_file(error_msg, log_path)
+        raise RuntimeError(error_msg)
+    
+    # Initialize services
+    await app_manager.initialize_services()
+    
+    # Start background tasks
+    await app_manager.start_background_tasks()
+    
+    app_manager.log_to_file("🎉 All services initialized successfully!", log_path)
+    
+    yield
+    
+    # Shutdown
+    await app_manager.shutdown()
+
+
+def create_app() -> FastAPI:
+    """
+    Create and configure the FastAPI application instance.
+    """
+    # Setup logging
+    setup_logging()
+    
+    # Setup signal handlers
+    setup_signal_handlers()
+
+    app = FastAPI(
+        title=AppConfig.APP_NAME,
+        description="API for downloading Instagram and TikTok videos with audio extraction",
+        version=AppConfig.APP_VERSION,
+        debug=AppConfig.DEBUG,
+        lifespan=lifespan
+    )
+
+    # Add logging middleware
+    app.add_middleware(LoggingMiddleware)
+
+    # CORS setup using configuration
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost", "http://127.0.0.1"],
+        allow_origins=AppConfig.get_cors_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    @app.on_event("startup")
-    async def startup_event():
-        """
-        Initialize services on application startup.
-        This ensures authentication is performed when the server starts.
-        """
-        # Get log path
-        log_dir = os.getenv("LOG_DIR", "logs")
-        log_path = os.path.join(log_dir, "app.log")
-        
-        # Direct file logging for immediate write
-        log_to_file("🚀 Starting Instagram Downloader API...", log_path)
-        
-        # Initialize Instagram service (this will trigger authentication)
-        log_to_file("🔧 Initializing Instagram service...", log_path)
-        try:
-            ig_service = InstagramService()
-            log_to_file("✅ Instagram service initialized successfully", log_path)
-        except Exception as e:
-            error_msg = f"❌ Failed to initialize Instagram service: {str(e)}"
-            log_to_file(error_msg, log_path)
-        
-        # Initialize TikTok service
-        log_to_file("🔧 Initializing TikTok service...", log_path)
-        try:
-            tt_service = TikTokService()
-            log_to_file("✅ TikTok service initialized successfully", log_path)
-        except Exception as e:
-            error_msg = f"❌ Failed to initialize TikTok service: {str(e)}"
-            log_to_file(error_msg, log_path)
-        
-        log_to_file("🎉 All services initialized successfully!", log_path)
+    # Add exception handlers
+    app.add_exception_handler(InstagramDownloaderError, handle_instagram_downloader_error)
+    app.add_exception_handler(HTTPException, handle_http_exception)
+    app.add_exception_handler(Exception, handle_generic_exception)
 
     @app.get("/")
     async def health() -> dict:

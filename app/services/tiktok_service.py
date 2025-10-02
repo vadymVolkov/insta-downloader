@@ -7,9 +7,11 @@ import json
 from datetime import datetime
 import yt_dlp
 import glob
+from .base_service import BaseService
+from app.config import AppConfig
 
 
-class TikTokService:
+class TikTokService(BaseService):
     """
     Service for downloading TikTok videos using yt-dlp (modern approach for 2024-2025).
     """
@@ -21,13 +23,8 @@ class TikTokService:
         Args:
             media_dir: Directory to store downloaded media files
         """
-        self.media_dir = Path(media_dir)
-        self.media_dir.mkdir(parents=True, exist_ok=True)
-        self.logger = logging.getLogger(__name__)
-        self.logger.info("TikTokService initialized | media_dir=%s", str(self.media_dir))
-        
-        # File rotation settings
-        self.max_files = 10  # Keep only last 10 videos
+        # Initialize base service
+        super().__init__(media_dir, max_files=10)
 
     def _extract_video_id(self, url: str) -> str:
         """
@@ -39,50 +36,6 @@ class TikTokService:
         # fallback: strip non-filename chars for cache key
         return re.sub(r"[^A-Za-z0-9]+", "", url)[:32]
     
-    def _cleanup_old_files(self):
-        """
-        Clean up old video files, keeping only the most recent max_files videos.
-        Files are sorted by modification time (newest first).
-        """
-        try:
-            # Get all video files in media directory
-            video_files = list(self.media_dir.glob("*.mp4"))
-            
-            if len(video_files) <= self.max_files:
-                return  # No cleanup needed
-            
-            # Sort by modification time (newest first)
-            video_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-            
-            # Files to delete (oldest ones)
-            files_to_delete = video_files[self.max_files:]
-            
-            deleted_count = 0
-            for file_path in files_to_delete:
-                try:
-                    # Delete associated files (.json, .txt)
-                    base_name = file_path.stem
-                    json_file = self.media_dir / f"{base_name}.json"
-                    txt_file = self.media_dir / f"{base_name}.txt"
-                    
-                    # Delete main video file
-                    file_path.unlink()
-                    deleted_count += 1
-                    
-                    # Delete associated metadata files
-                    if json_file.exists():
-                        json_file.unlink()
-                    if txt_file.exists():
-                        txt_file.unlink()
-                        
-                except Exception as e:
-                    self.logger.warning("Failed to delete file %s: %s", file_path, str(e))
-            
-            if deleted_count > 0:
-                self.logger.info("File cleanup completed: deleted %d old video files", deleted_count)
-                
-        except Exception as e:
-            self.logger.error("Error during file cleanup: %s", str(e))
 
     async def download_post(self, url: str) -> Tuple[str, Dict[str, Any]]:
         """
@@ -178,7 +131,7 @@ class TikTokService:
                     "author": author,
                     "description": description,
                     "created_at": created_at,
-                    "video_url": f"http://localhost:8000/static/{target_mp4.name}",
+                    "video_url": f"{AppConfig.BASE_URL}/static/{target_mp4.name}",
                 }
                 
                 try:
@@ -191,6 +144,15 @@ class TikTokService:
                     }, ensure_ascii=False))
                 except Exception:
                     pass
+
+                # Extract audio from video after successful download
+                audio_extracted, audio_url = self._extract_audio_from_video(target_mp4)
+                
+                # Add audio URL to metadata if extraction was successful
+                if audio_extracted:
+                    metadata["audio_url"] = audio_url
+                else:
+                    metadata["audio_url"] = None
 
                 # Clean up old files after successful download
                 self._cleanup_old_files()
@@ -205,9 +167,5 @@ class TikTokService:
         """
         Build metadata dict from saved files and parameters.
         """
-        return {
-            "author": author,
-            "description": description,
-            "created_at": datetime.fromtimestamp(target_mp4.stat().st_mtime),
-            "video_url": f"http://localhost:8000/static/{target_mp4.name}",
-        }
+        created_at = datetime.fromtimestamp(target_mp4.stat().st_mtime)
+        return self._build_metadata_with_audio(author, description, target_mp4, created_at)

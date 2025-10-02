@@ -1,0 +1,128 @@
+{
+  "timestamp": 1759404334.9371898,
+  "system_info": {
+    "cpu_count": 8,
+    "memory_total": 17179869184,
+    "memory_available": 6662574080,
+    "disk_usage": 4.0,
+    "python_version": "3.9.6 (default, Dec  7 2023, 05:42:47) \n[Clang 15.0.0 (clang-1500.1.0.2.5)]",
+    "platform": "darwin"
+  },
+  "sync_results": [
+    {
+      "video_file": "httpsvmtiktokcomZMAac7Uhm.mp4",
+      "video_size": 3686286,
+      "iterations": 2,
+      "successful_extractions": 2,
+      "failed_extractions": 0,
+      "avg_time": 0.9779438972473145,
+      "min_time": 0.9216330051422119,
+      "max_time": 1.034254789352417,
+      "avg_memory_usage": -22528.0,
+      "max_memory_usage": 28672,
+      "avg_cpu_usage": 0.35,
+      "max_cpu_usage": 0.4,
+      "raw_times": [
+        1.034254789352417,
+        0.9216330051422119
+      ],
+      "raw_memory": [
+        28672,
+        -73728
+      ],
+      "raw_cpu": [
+        0.4,
+        0.3
+      ]
+    },
+    {
+      "video_file": "3730429837455532107.mp4",
+      "video_size": 8216437,
+      "iterations": 2,
+      "successful_extractions": 2,
+      "failed_extractions": 0,
+      "avg_time": 1.4285870790481567,
+      "min_time": 1.3101189136505127,
+      "max_time": 1.5470552444458008,
+      "avg_memory_usage": 0.0,
+      "max_memory_usage": 0,
+      "avg_cpu_usage": 0.25,
+      "max_cpu_usage": 0.3,
+      "raw_times": [
+        1.5470552444458008,
+        1.3101189136505127
+      ],
+      "raw_memory": [
+        0,
+        0
+      ],
+      "raw_cpu": [
+        0.2,
+        0.3
+      ]
+    }
+  ],
+  "async_results": [
+    {
+      "video_file": "httpsvmtiktokcomZMAac7Uhm.mp4",
+      "video_size": 3686286,
+      "timeout": 30,
+      "iterations": 2,
+      "successful_extractions": 2,
+      "failed_extractions": 0,
+      "avg_time": 0.8370916843414307,
+      "min_time": 0.8323662281036377,
+      "max_time": 0.8418171405792236,
+      "avg_memory_usage": 59392.0,
+      "max_memory_usage": 94208,
+      "avg_cpu_usage": 0.6,
+      "max_cpu_usage": 0.7,
+      "raw_times": [
+        0.8418171405792236,
+        0.8323662281036377
+      ],
+      "raw_memory": [
+        94208,
+        24576
+      ],
+      "raw_cpu": [
+        0.7,
+        0.5
+      ]
+    },
+    {
+      "video_file": "3730429837455532107.mp4",
+      "video_size": 8216437,
+      "timeout": 30,
+      "iterations": 2,
+      "successful_extractions": 2,
+      "failed_extractions": 0,
+      "avg_time": 1.327697992324829,
+      "min_time": 1.3096108436584473,
+      "max_time": 1.345785140991211,
+      "avg_memory_usage": 22528.0,
+      "max_memory_usage": 36864,
+      "avg_cpu_usage": 0.3,
+      "max_cpu_usage": 0.3,
+      "raw_times": [
+        1.345785140991211,
+        1.3096108436584473
+      ],
+      "raw_memory": [
+        36864,
+        8192
+      ],
+      "raw_cpu": [
+        0.3,
+        0.3
+      ]
+    }
+  ],
+  "summary": {
+    "total_videos_tested": 2,
+    "sync_avg_time": 1.2032654881477356,
+    "async_avg_time": 1.0823948383331299,
+    "sync_success_rate": 1.0,
+    "async_success_rate": 1.0
+  }
+}

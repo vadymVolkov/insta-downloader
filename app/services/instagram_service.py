@@ -11,9 +11,12 @@ from typing import Dict, Tuple, Any, Optional
 from pathlib import Path
 import json
 import httpx
-import glob
+from .base_service import BaseService
+from app.config import AppConfig
+from app.utils.logger import get_service_logger
+from app.utils.exceptions import ServiceError, VideoDownloadError
 
-class InstagramService:
+class InstagramService(BaseService):
     """
     Service for downloading Instagram posts and extracting metadata.
     """
@@ -25,6 +28,12 @@ class InstagramService:
         Args:
             media_dir: Directory to store downloaded media files
         """
+        # Initialize base service
+        super().__init__(media_dir, max_files=10)
+        
+        # Initialize service logger
+        self.logger = get_service_logger("instagram")
+        
         self.loader = instaloader.Instaloader(
             download_videos=True,
             download_video_thumbnails=False,
@@ -33,16 +42,11 @@ class InstagramService:
             save_metadata=True,
             compress_json=False
         )
-        self.media_dir = Path(media_dir)
-        self.media_dir.mkdir(parents=True, exist_ok=True)
-        self.logger = logging.getLogger(__name__)
-        self.logger.info("InstagramService initialized | media_dir=%s", str(self.media_dir))
         
         # Session-based authentication
         self._setup_session_auth()
         
-        # File rotation settings
-        self.max_files = 10  # Keep only last 10 videos
+        self.logger.log_service_status("initialized", media_dir=str(self.media_dir))
     
     def _setup_session_auth(self):
         """
@@ -54,11 +58,11 @@ class InstagramService:
         session_file = project_root / ".instaloader-session"
         
         self.logger.info("🔐 Starting Instagram authentication process...")
-        self.logger.info("📁 Session file path: %s", str(session_file))
+        self.logger.info("📁 Session file path", session_file=str(session_file))
         
         # Check if session file exists
         if not session_file.exists():
-            self.logger.warning("⚠️  Session file not found at: %s", str(session_file))
+            self.logger.warning("⚠️  Session file not found", session_file=str(session_file))
             self.logger.info("❌ Authentication failed: No session file available")
             self.logger.info("💡 Working in unauthenticated mode - some content may be inaccessible")
             return
@@ -71,13 +75,13 @@ class InstagramService:
         # Check file size
         try:
             file_size = session_file.stat().st_size
-            self.logger.info("📊 Session file size: %d bytes", file_size)
+            self.logger.info("📊 Session file size", file_size_bytes=file_size)
             if file_size == 0:
                 self.logger.warning("⚠️  Session file is empty")
                 self.logger.info("❌ Authentication failed: Empty session file")
                 return
         except Exception as e:
-            self.logger.error("❌ Authentication failed: Cannot read session file | error=%s", str(e))
+            self.logger.error("❌ Authentication failed: Cannot read session file", error=str(e))
             return
         
         # Try to load session
@@ -86,65 +90,20 @@ class InstagramService:
             
             # Get username from environment or use default
             username = os.getenv("INSTAGRAM_USERNAME", "default_user")
-            self.logger.info("👤 Loading session for user: %s", username)
+            self.logger.info("👤 Loading session for user", username=username)
             
             with open(session_file, "rb") as sf:
                 self.loader.context.load_session_from_file(username, sessionfile=sf)
             
             self.logger.info("✅ Instagram authentication successful!")
-            self.logger.info("🎉 Session loaded successfully for user: %s", username)
+            self.logger.info("🎉 Session loaded successfully for user", username=username)
             self.logger.info("🚀 Ready to download Instagram content")
             
         except Exception as e:
-            self.logger.error("❌ Authentication failed: Cannot load session | error=%s", str(e))
+            self.logger.error("❌ Authentication failed: Cannot load session", error=str(e))
             self.logger.warning("⚠️  Session file may be corrupted or invalid")
             self.logger.info("💡 Working in unauthenticated mode - some content may be inaccessible")
     
-    def _cleanup_old_files(self):
-        """
-        Clean up old video files, keeping only the most recent max_files videos.
-        Files are sorted by modification time (newest first).
-        """
-        try:
-            # Get all video files in media directory
-            video_files = list(self.media_dir.glob("*.mp4"))
-            
-            if len(video_files) <= self.max_files:
-                return  # No cleanup needed
-            
-            # Sort by modification time (newest first)
-            video_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-            
-            # Files to delete (oldest ones)
-            files_to_delete = video_files[self.max_files:]
-            
-            deleted_count = 0
-            for file_path in files_to_delete:
-                try:
-                    # Delete associated files (.json, .txt)
-                    base_name = file_path.stem
-                    json_file = self.media_dir / f"{base_name}.json"
-                    txt_file = self.media_dir / f"{base_name}.txt"
-                    
-                    # Delete main video file
-                    file_path.unlink()
-                    deleted_count += 1
-                    
-                    # Delete associated metadata files
-                    if json_file.exists():
-                        json_file.unlink()
-                    if txt_file.exists():
-                        txt_file.unlink()
-                        
-                except Exception as e:
-                    self.logger.warning("Failed to delete file %s: %s", file_path, str(e))
-            
-            if deleted_count > 0:
-                self.logger.info("File cleanup completed: deleted %d old video files", deleted_count)
-                
-        except Exception as e:
-            self.logger.error("Error during file cleanup: %s", str(e))
-        
     def extract_shortcode_from_url(self, url: str) -> str:
         """
         Extract the shortcode from an Instagram URL.
@@ -256,7 +215,7 @@ class InstagramService:
                 "author": post.owner_username,
                 "description": post.caption or "",
                 "created_at": post.date,
-                "video_url": f"http://localhost:8000/static/{target_mp4.name}",
+                "video_url": f"{AppConfig.BASE_URL}/static/{target_mp4.name}",
             }
             try:
                 target_json.write_text(json.dumps({
@@ -269,6 +228,15 @@ class InstagramService:
             except Exception:
                 pass
 
+            # Extract audio from video after successful download
+            audio_extracted, audio_url = self._extract_audio_from_video(target_mp4)
+            
+            # Add audio URL to metadata if extraction was successful
+            if audio_extracted:
+                metadata["audio_url"] = audio_url
+            else:
+                metadata["audio_url"] = None
+            
             # Clean up old files after successful download
             self._cleanup_old_files()
             
@@ -295,12 +263,10 @@ class InstagramService:
                 description = target_txt.read_text(errors="ignore").strip()
         except Exception:
             description = ""
+        
         created_at = post.date if hasattr(post, "date") else datetime.fromtimestamp(target_mp4.stat().st_mtime)
-        return {
-            "author": getattr(post, "owner_username", "unknown"),
-            "description": description,
-            "created_at": created_at,
-            "video_url": f"http://localhost:8000/static/{target_mp4.name}",
-        }
+        author = getattr(post, "owner_username", "unknown")
+        
+        return self._build_metadata_with_audio(author, description, target_mp4, created_at)
     
     # Comments extraction removed per requirements simplification

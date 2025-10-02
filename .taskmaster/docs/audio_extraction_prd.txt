@@ -1,0 +1,74 @@
+# Audio Extraction Feature PRD
+
+## Overview
+Add audio extraction functionality to the existing Instagram/TikTok downloader service. After downloading videos from social media platforms, extract the audio track and provide access to both video and audio files through the API.
+
+## Requirements
+
+### Core Functionality
+1. **Audio Extraction**: Extract audio track from downloaded videos using FFmpeg
+2. **File Management**: Store audio files in a separate directory structure
+3. **API Response Enhancement**: Add audio_url field to existing JSON responses
+4. **File Cleanup**: Implement automatic cleanup to maintain maximum 10 audio files
+5. **Static File Serving**: Serve audio files through static file endpoint
+
+### Technical Specifications
+
+#### File Structure
+- Audio files should be stored in a separate directory (e.g., `app/audio/`)
+- Audio files should use the same filename as the corresponding video file
+- Audio format: MP3 (for compatibility and smaller file size)
+
+#### API Changes
+- Add `audio_url` field to existing response schema
+- Audio URL format: `http://localhost/static/audio/<filename>.mp3`
+- Maintain existing video URL format: `http://localhost/static/video/<filename>.mp4`
+
+#### File Management
+- Implement cleanup mechanism for audio files (max 10 files)
+- Cleanup should work independently for video and audio files
+- Use same cleanup logic as existing video management
+
+#### Dependencies
+- Add FFmpeg as a system dependency
+- Add python-ffmpeg or similar library for audio extraction
+- Ensure FFmpeg is available in the system PATH
+
+### Implementation Details
+
+#### Service Layer Changes
+- Extend existing download services (Instagram/TikTok) to include audio extraction
+- Create audio extraction utility function
+- Implement audio file cleanup logic
+
+#### Router Changes
+- No changes needed to existing endpoints
+- Response schema will be automatically updated
+
+#### Static File Serving
+- Configure FastAPI to serve audio files from audio directory
+- Add audio directory to static file mounts
+
+### Error Handling
+- Handle FFmpeg errors gracefully
+- Provide fallback if audio extraction fails
+- Log audio extraction errors appropriately
+
+### Testing
+- Test audio extraction with various video formats
+- Test file cleanup mechanism
+- Test static file serving for audio files
+- Verify API response includes both video_url and audio_url
+
+## Success Criteria
+1. Audio files are successfully extracted from downloaded videos
+2. Audio files are accessible via static file serving
+3. API responses include both video_url and audio_url fields
+4. File cleanup works correctly for both video and audio files
+5. No performance degradation in existing functionality
+6. Error handling works properly for audio extraction failures
+
+## Dependencies
+- FFmpeg (system dependency)
+- Python FFmpeg library (e.g., ffmpeg-python)
+- Existing project structure and services
