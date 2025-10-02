@@ -139,27 +139,50 @@ class ApplicationManager:
         log_path = os.path.join(AppConfig.LOG_DIR, "app.log")
         self.log_to_file("🛑 Starting graceful shutdown...", log_path)
         
-        # Signal shutdown to background tasks
-        self._shutdown_event.set()
-        
-        # Cancel background tasks
-        if self.cleanup_task and not self.cleanup_task.done():
-            self.cleanup_task.cancel()
-            try:
-                await self.cleanup_task
-            except asyncio.CancelledError:
-                pass
-        
-        # Cleanup services
-        if self.instagram_service:
-            self.log_to_file("🔧 Shutting down Instagram service...", log_path)
-            # Add any service-specific cleanup here
-        
-        if self.tiktok_service:
-            self.log_to_file("🔧 Shutting down TikTok service...", log_path)
-            # Add any service-specific cleanup here
-        
-        self.log_to_file("✅ Graceful shutdown completed", log_path)
+        try:
+            # Signal shutdown to background tasks
+            self._shutdown_event.set()
+            self.log_to_file("📡 Shutdown signal sent to background tasks", log_path)
+            
+            # Cancel background tasks with timeout
+            if self.cleanup_task and not self.cleanup_task.done():
+                self.log_to_file("🔄 Cancelling background cleanup task...", log_path)
+                self.cleanup_task.cancel()
+                try:
+                    # Wait for task cancellation with timeout
+                    await asyncio.wait_for(self.cleanup_task, timeout=3.0)
+                    self.log_to_file("✅ Background cleanup task cancelled", log_path)
+                except asyncio.CancelledError:
+                    self.log_to_file("✅ Background cleanup task cancelled", log_path)
+                except asyncio.TimeoutError:
+                    self.log_to_file("⚠️ Background cleanup task cancellation timed out", log_path)
+            
+            # Cleanup services
+            if self.instagram_service:
+                self.log_to_file("🔧 Shutting down Instagram service...", log_path)
+                # Add any service-specific cleanup here
+                self.instagram_service = None
+            
+            if self.tiktok_service:
+                self.log_to_file("🔧 Shutting down TikTok service...", log_path)
+                # Add any service-specific cleanup here
+                self.tiktok_service = None
+            
+            # Cancel any remaining asyncio tasks
+            current_task = asyncio.current_task()
+            for task in asyncio.all_tasks():
+                if task != current_task and not task.done():
+                    self.log_to_file(f"🔄 Cancelling remaining task: {task.get_name()}", log_path)
+                    task.cancel()
+            
+            # Wait a moment for tasks to cancel
+            await asyncio.sleep(0.1)
+            
+            self.log_to_file("✅ Graceful shutdown completed", log_path)
+            
+        except Exception as e:
+            self.log_to_file(f"❌ Error during shutdown: {str(e)}", log_path)
+            raise
 
 
 # Global application manager instance
@@ -172,12 +195,34 @@ def setup_signal_handlers():
     """
     def signal_handler(signum, frame):
         print(f"\n🛑 Received signal {signum}, initiating graceful shutdown...")
-        # Signal the application manager to shutdown
-        asyncio.create_task(app_manager.shutdown())
+        
+        # Set shutdown event to trigger graceful shutdown
+        if hasattr(app_manager, '_shutdown_event'):
+            app_manager._shutdown_event.set()
+        
+        # CRITICAL FIX: Call app_manager.shutdown() directly
+        # This ensures proper cleanup of background tasks and resources
+        try:
+            import asyncio
+            # Get the current event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Schedule the shutdown coroutine
+                asyncio.create_task(app_manager.shutdown())
+            else:
+                # Run the shutdown if no loop is running
+                asyncio.run(app_manager.shutdown())
+        except Exception as e:
+            print(f"❌ Error during shutdown: {e}")
+            # Force exit if graceful shutdown fails
+            print("🔄 Force exiting due to shutdown error...")
+            os._exit(1)
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    # Also handle SIGHUP for terminal closure
+    signal.signal(signal.SIGHUP, signal_handler)
 
 def setup_logging():
     """
@@ -254,10 +299,19 @@ async def lifespan(app: FastAPI):
     
     app_manager.log_to_file("🎉 All services initialized successfully!", log_path)
     
-    yield
-    
-    # Shutdown
-    await app_manager.shutdown()
+    try:
+        yield
+    finally:
+        # Shutdown - this will always run even if there's an exception
+        try:
+            app_manager.log_to_file("🛑 Application shutdown initiated...", log_path)
+            await app_manager.shutdown()
+            app_manager.log_to_file("✅ Application shutdown completed", log_path)
+        except Exception as e:
+            app_manager.log_to_file(f"❌ Error during shutdown: {str(e)}", log_path)
+            # Force exit if graceful shutdown fails
+            print(f"🔄 Force exiting due to shutdown error: {e}")
+            os._exit(1)
 
 
 def create_app() -> FastAPI:
