@@ -41,15 +41,15 @@ class ApplicationManager:
     def log_to_file(self, message: str, log_path: str):
         """
         Direct file writing function that forces immediate disk write.
-    """
-    try:
-        with open(log_path, 'a', encoding='utf-8') as f:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
-            f.write(f"{timestamp} - app.main - INFO - {message}\n")
-            f.flush()
-            os.fsync(f.fileno())
-    except Exception as e:
-        print(f"Error writing to log file: {e}")
+        """
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
+                f.write(f"{timestamp} - app.main - INFO - {message}\n")
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception as e:
+            print(f"Error writing to log file: {e}")
 
     async def initialize_services(self):
         """
@@ -61,7 +61,7 @@ class ApplicationManager:
             self.instagram_service = InstagramService()
             self.logger.info("Instagram service initialized successfully")
         except Exception as e:
-            self.logger.error("Failed to initialize Instagram service", error=str(e))
+            self.logger.error(f"Failed to initialize Instagram service: {str(e)}")
             raise ServiceError("Instagram", f"Service initialization failed: {str(e)}")
         
         # Initialize TikTok service
@@ -70,7 +70,7 @@ class ApplicationManager:
             self.tiktok_service = TikTokService()
             self.logger.info("TikTok service initialized successfully")
         except Exception as e:
-            self.logger.error("Failed to initialize TikTok service", error=str(e))
+            self.logger.error(f"Failed to initialize TikTok service: {str(e)}")
             raise ServiceError("TikTok", f"Service initialization failed: {str(e)}")
     
     def get_service_status(self) -> dict:

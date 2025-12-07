@@ -63,7 +63,7 @@ class AppConfig:
     """Main application configuration."""
     
     # Base URL for the application
-    BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8000")
+    BASE_URL: str = os.getenv("BASE_URL", "http://vadymn8nbot.duckdns.org:8000")
     
     # Log directory
     LOG_DIR: str = os.getenv("LOG_DIR", "logs")

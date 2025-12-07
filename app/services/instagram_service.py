@@ -60,11 +60,11 @@ class InstagramService(BaseService):
         session_file = project_root / ".instaloader-session"
         
         self.logger.info("🔐 Starting Instagram authentication process...")
-        self.logger.info("📁 Session file path", session_file=str(session_file))
+        self.logger.info(f"📁 Session file path: {session_file}")
         
         # Check if session file exists
         if not session_file.exists():
-            self.logger.warning("⚠️  Session file not found", session_file=str(session_file))
+            self.logger.warning(f"⚠️  Session file not found: {session_file}")
             self.logger.info("❌ Authentication failed: No session file available")
             self.logger.info("💡 Working in unauthenticated mode - some content may be inaccessible")
             return
@@ -77,13 +77,13 @@ class InstagramService(BaseService):
         # Check file size
         try:
             file_size = session_file.stat().st_size
-            self.logger.info("📊 Session file size", file_size_bytes=file_size)
+            self.logger.info(f"📊 Session file size: {file_size} bytes")
             if file_size == 0:
                 self.logger.warning("⚠️  Session file is empty")
                 self.logger.info("❌ Authentication failed: Empty session file")
                 return
         except Exception as e:
-            self.logger.error("❌ Authentication failed: Cannot read session file", error=str(e))
+            self.logger.error(f"❌ Authentication failed: Cannot read session file: {str(e)}")
             return
         
         # Try to load session
@@ -92,17 +92,17 @@ class InstagramService(BaseService):
             
             # Get username from environment or use default
             username = os.getenv("INSTAGRAM_USERNAME", "default_user")
-            self.logger.info("👤 Loading session for user", username=username)
+            self.logger.info(f"👤 Loading session for user: {username}")
             
             with open(session_file, "rb") as sf:
                 self.loader.context.load_session_from_file(username, sessionfile=sf)
             
             self.logger.info("✅ Instagram authentication successful!")
-            self.logger.info("🎉 Session loaded successfully for user", username=username)
+            self.logger.info(f"🎉 Session loaded successfully for user: {username}")
             self.logger.info("🚀 Ready to download Instagram content")
             
         except Exception as e:
-            self.logger.error("❌ Authentication failed: Cannot load session", error=str(e))
+            self.logger.error(f"❌ Authentication failed: Cannot load session: {str(e)}")
             self.logger.warning("⚠️  Session file may be corrupted or invalid")
             self.logger.info("💡 Working in unauthenticated mode - some content may be inaccessible")
     
@@ -184,7 +184,7 @@ class InstagramService(BaseService):
             return "image"
             
         except Exception as e:
-            self.logger.error("Failed to determine post type", error=str(e))
+            self.logger.error(f"Failed to determine post type: {str(e)}")
             raise Exception(f"Could not determine Instagram post type: {str(e)}")
     
     async def download_carousel_images(self, url: str) -> List[Path]:
@@ -210,7 +210,7 @@ class InstagramService(BaseService):
                 try:
                     nodes_list = list(get_nodes())
                 except Exception as e:
-                    self.logger.warning("Failed to enumerate get_sidecar_nodes", error=str(e))
+                    self.logger.warning(f"Failed to enumerate get_sidecar_nodes: {str(e)}")
 
             if not nodes_list:
                 fallback_nodes = getattr(post, 'sidecar_nodes', None)
@@ -258,13 +258,13 @@ class InstagramService(BaseService):
                         
                         if image_path.exists() and image_path.stat().st_size > 0:
                             image_paths.append(image_path)
-                            self.logger.info(f"Downloaded carousel image {i+1}/{len(nodes_list)}", 
-                                           image_path=str(image_path), size_bytes=image_path.stat().st_size)
+                            size_bytes = image_path.stat().st_size
+                            self.logger.info(f"Downloaded carousel image {i+1}/{len(nodes_list)}: {image_path}, size: {size_bytes} bytes")
                         else:
                             self.logger.warning(f"Failed to download carousel image {i+1} - file is empty or missing")
                             
                     except Exception as e:
-                        self.logger.warning(f"Failed to download carousel image {i+1}", error=str(e))
+                        self.logger.warning(f"Failed to download carousel image {i+1}: {str(e)}")
                         continue
                 else:
                     self.logger.info(f"Skipping video item {i+1} in carousel")
@@ -276,7 +276,7 @@ class InstagramService(BaseService):
             return image_paths
             
         except Exception as e:
-            self.logger.error("Failed to download carousel images", error=str(e))
+            self.logger.error(f"Failed to download carousel images: {str(e)}")
             raise Exception(f"Could not download carousel images: {str(e)}")
     
     async def download_single_image(self, url: str) -> Path:
@@ -313,11 +313,11 @@ class InstagramService(BaseService):
             if not image_path.exists() or image_path.stat().st_size == 0:
                 raise Exception("Downloaded image file is empty or missing")
             
-            self.logger.info(f"Successfully downloaded single image", image_path=str(image_path))
+            self.logger.info(f"Successfully downloaded single image: {image_path}")
             return image_path
             
         except Exception as e:
-            self.logger.error("Failed to download single image", error=str(e))
+            self.logger.error(f"Failed to download single image: {str(e)}")
             raise Exception(f"Could not download single image: {str(e)}")
     
     async def create_slideshow_video(self, image_paths: List[Path], duration_per_slide: int = 3) -> Path:
@@ -381,7 +381,7 @@ class InstagramService(BaseService):
             return output_path
             
         except Exception as e:
-            self.logger.error("Failed to create slideshow video", error=str(e))
+            self.logger.error(f"Failed to create slideshow video: {str(e)}")
             raise Exception(f"Could not create slideshow video: {str(e)}")
     
     async def create_static_image_video(self, image_path: Path, duration: int = 1) -> Path:
@@ -402,7 +402,7 @@ class InstagramService(BaseService):
             unique_id = str(uuid.uuid4())
             output_path = self.media_dir / f"static_{unique_id}.mp4"
             
-            self.logger.info(f"Creating static image video", image_path=str(image_path), duration=duration)
+            self.logger.info(f"Creating static image video: {image_path}, duration: {duration}s")
             
             # Create video from static image
             (
@@ -420,11 +420,11 @@ class InstagramService(BaseService):
             if not output_path.exists() or output_path.stat().st_size == 0:
                 raise Exception("Created static image video is empty or missing")
             
-            self.logger.info(f"Successfully created static image video", output_path=str(output_path))
+            self.logger.info(f"Successfully created static image video: {output_path}")
             return output_path
             
         except Exception as e:
-            self.logger.error("Failed to create static image video", error=str(e))
+            self.logger.error(f"Failed to create static image video: {str(e)}")
             raise Exception(f"Could not create static image video: {str(e)}")
     
     async def cleanup_image_files(self, image_paths: List[Path]) -> None:
@@ -440,9 +440,9 @@ class InstagramService(BaseService):
                 if path.exists():
                     path.unlink()
                     deleted_count += 1
-                    self.logger.info(f"Cleaned up temporary image", path=str(path))
+                    self.logger.info(f"Cleaned up temporary image: {path}")
             except Exception as e:
-                self.logger.warning(f"Failed to remove temporary image {path}", error=str(e))
+                self.logger.warning(f"Failed to remove temporary image {path}: {str(e)}")
         
         if deleted_count > 0:
             self.logger.info(f"Cleaned up {deleted_count} temporary image files")
@@ -471,13 +471,13 @@ class InstagramService(BaseService):
             )
             
             if audio_path.exists():
-                self.logger.info(f"Created empty audio file", audio_path=str(audio_path))
+                self.logger.info(f"Created empty audio file: {audio_path}")
                 return audio_path
             else:
                 raise Exception("Empty audio file was not created")
                 
         except Exception as e:
-            self.logger.error("Failed to create empty audio file", error=str(e))
+            self.logger.error(f"Failed to create empty audio file: {str(e)}")
             raise Exception(f"Could not create empty audio file: {str(e)}")
         
     async def download_post(self, url: str) -> Tuple[str, Dict[str, Any]]:
@@ -578,7 +578,7 @@ class InstagramService(BaseService):
                     audio_url = f"{AppConfig.BASE_URL}/static/{empty_audio_path.name}"
                     self.logger.info("Created empty audio file for post without audio")
                 except Exception as e:
-                    self.logger.warning("Failed to create empty audio file", error=str(e))
+                    self.logger.warning(f"Failed to create empty audio file: {str(e)}")
                     audio_url = None
             
             # Add audio URL to metadata

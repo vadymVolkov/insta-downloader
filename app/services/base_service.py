@@ -69,13 +69,13 @@ class BaseService:
                         txt_file.unlink()
                         
                 except Exception as e:
-                    self.logger.warning("Failed to delete file %s: %s", file_path, str(e))
+                    self.logger.warning(f"Failed to delete file {file_path}: {str(e)}")
             
             if deleted_count > 0:
-                self.logger.info("File cleanup completed: deleted %d old video files", deleted_count)
+                self.logger.info(f"File cleanup completed, deleted {deleted_count} files")
                 
         except Exception as e:
-            self.logger.error("Error during file cleanup: %s", str(e))
+            self.logger.error(f"Error during file cleanup: {str(e)}")
     
     def _extract_audio_from_video(self, video_path: Path) -> Tuple[bool, Optional[str]]:
         """

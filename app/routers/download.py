@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
-from app.schemas import DownloadRequest, DownloadResponse
+from app.schemas import DownloadRequest, DownloadResponse, ErrorResponse
 from app.services import InstagramService, TikTokService
 from app.services.ffmpeg_utils import verify_ffmpeg_installation, get_ffmpeg_performance_info
 from app.utils.url_validator import validate_url
+from typing import Union
 import logging
 
 router = APIRouter(prefix="/api", tags=["download"])
@@ -22,12 +23,12 @@ def get_tiktok_service() -> TikTokService:
     return TikTokService()
 
 
-@router.post("/download/", response_model=DownloadResponse)
+@router.post("/download/", response_model=Union[DownloadResponse, ErrorResponse])
 async def download_video(
     request: DownloadRequest,
     ig_service: InstagramService = Depends(get_instagram_service),
     tt_service: TikTokService = Depends(get_tiktok_service),
-) -> DownloadResponse:
+) -> Union[DownloadResponse, ErrorResponse]:
     """
     Download video by URL from supported platforms (Instagram/TikTok) and
     return normalized metadata with a public video URL.
@@ -46,9 +47,26 @@ async def download_video(
     try:
         logger.info("Processing download request for URL: %s", request.url)
         
-        # URL validation is handled by Pydantic schema
+        # Manual URL validation to return 200 with error JSON instead of 422
         raw = str(request.url)
         lowered = raw.lower()
+        
+        # First check if it's a valid URL format
+        if not (raw.startswith('http://') or raw.startswith('https://')):
+            return ErrorResponse(
+                error="Invalid URL format",
+                error_code="INVALID_URL",
+                details="URL must start with http:// or https://"
+            )
+        
+        # Check if URL is supported platform
+        from app.schemas.requests import INSTAGRAM_POST_REGEX, TIKTOK_POST_REGEX
+        if not (INSTAGRAM_POST_REGEX.match(raw) or TIKTOK_POST_REGEX.match(raw)):
+            return ErrorResponse(
+                error="Unsupported URL format",
+                error_code="INVALID_URL_FORMAT",
+                details="URL must be a valid Instagram post/reel or TikTok video link"
+            )
         
         # Determine platform and call appropriate service
         if "instagram.com" in lowered:
@@ -81,24 +99,41 @@ async def download_video(
         
     except ValueError as e:
         logger.warning("Validation error: %s", e)
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        raise
+        return ErrorResponse(
+            error=str(e),
+            error_code="INVALID_URL",
+            details="The provided URL is not valid or not supported"
+        )
     except Exception as e:
         logger.error("Download error: %s", e)
         message = str(e)
         
-        # Map common authorization/private errors to a clear 403 response
+        # Map common errors to appropriate error responses
         lowered_msg = message.lower()
         if any(key in lowered_msg for key in ["403", "authorization", "login", "private", "forbidden"]):
-            raise HTTPException(status_code=403, detail="Видео недоступно: аккаунт приватный или требуется вход в Instagram")
+            return ErrorResponse(
+                error="Account is private",
+                error_code="PRIVATE_ACCOUNT",
+                details="The Instagram account is private or requires login"
+            )
         elif "timeout" in lowered_msg or "timed out" in lowered_msg:
-            raise HTTPException(status_code=408, detail="Request timeout: попробуйте позже")
-        elif "not found" in lowered_msg or "404" in lowered_msg:
-            raise HTTPException(status_code=404, detail="Видео не найдено")
+            return ErrorResponse(
+                error="Request timeout",
+                error_code="TIMEOUT",
+                details="The request timed out, please try again later"
+            )
+        elif "not found" in lowered_msg or "404" in lowered_msg or "fetching post metadata failed" in lowered_msg:
+            return ErrorResponse(
+                error="Post not found",
+                error_code="POST_NOT_FOUND",
+                details="The Instagram post may have been deleted or the URL is incorrect"
+            )
         else:
-            raise HTTPException(status_code=500, detail="Failed to download content")
+            return ErrorResponse(
+                error="Download failed",
+                error_code="DOWNLOAD_ERROR",
+                details=f"Failed to download content: {message}"
+            )
 
 
 @router.get("/health/")

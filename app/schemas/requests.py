@@ -23,7 +23,7 @@ class DownloadRequest(BaseModel):
         url: The URL of the video to download
     """
 
-    url: HttpUrl = Field(
+    url: str = Field(
         ...,
         description="URL of the Instagram or TikTok video to download",
         examples=[
@@ -33,26 +33,7 @@ class DownloadRequest(BaseModel):
         ]
     )
 
-    @field_validator("url")
-    @classmethod
-    def validate_supported_url(cls, value: HttpUrl) -> HttpUrl:
-        """
-        Ensure the provided URL belongs to a supported platform (Instagram/TikTok)
-        and points to a post-like or video resource.
-        
-        Args:
-            value: The URL to validate
-            
-        Returns:
-            The validated URL
-            
-        Raises:
-            ValueError: If the URL is not supported
-        """
-        raw = str(value)
-        if INSTAGRAM_POST_REGEX.match(raw) or TIKTOK_POST_REGEX.match(raw):
-            return value
-        raise ValueError("URL must be a valid Instagram or TikTok video URL")
+    # URL validation moved to router to return 200 with error JSON instead of 422
     
     model_config = {
         "json_schema_extra": {

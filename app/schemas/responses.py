@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from pydantic import BaseModel, Field
 
 class DownloadResponse(BaseModel):
@@ -50,6 +50,52 @@ class DownloadResponse(BaseModel):
                     "created_at": "2023-10-01T14:23:00",
                     "video_url": "http://localhost:8000/static/video123.mp4",
                     "audio_url": "http://localhost:8000/static/video123.mp3"
+                }
+            ]
+        }
+    }
+
+
+class ErrorResponse(BaseModel):
+    """
+    Error response payload for the download endpoint.
+    
+    Attributes:
+        success: Always False for error responses
+        error: Error message describing what went wrong
+        error_code: Specific error code for programmatic handling
+        details: Additional error details (optional)
+    """
+    
+    success: bool = Field(
+        False,
+        description="Always False for error responses",
+        examples=[False]
+    )
+    error: str = Field(
+        ...,
+        description="Error message describing what went wrong",
+        examples=["Post not found", "Account is private", "Invalid URL format"]
+    )
+    error_code: str = Field(
+        ...,
+        description="Specific error code for programmatic handling",
+        examples=["POST_NOT_FOUND", "PRIVATE_ACCOUNT", "INVALID_URL"]
+    )
+    details: Optional[str] = Field(
+        None,
+        description="Additional error details",
+        examples=["The Instagram post may have been deleted or the URL is incorrect"]
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": False,
+                    "error": "Post not found",
+                    "error_code": "POST_NOT_FOUND",
+                    "details": "The Instagram post may have been deleted or the URL is incorrect"
                 }
             ]
         }

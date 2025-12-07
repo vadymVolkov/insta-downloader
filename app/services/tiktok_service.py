@@ -102,9 +102,10 @@ class TikTokService(BaseService):
                 upload_date = info.get('upload_date', '')
                 
                 # Log available fields for debugging
-                self.logger.info("TikTok metadata fields: %s", list(info.keys()))
-                self.logger.info("Description length: %d chars", len(description))
-                self.logger.info("Description preview: %s", description[:100] + "..." if len(description) > 100 else description)
+                self.logger.info(f"TikTok metadata fields: {list(info.keys())}")
+                self.logger.info(f"Description length: {len(description)} chars")
+                preview = description[:100] + "..." if len(description) > 100 else description
+                self.logger.info(f"Description preview: {preview}")
                 
                 # Convert upload_date to datetime if available
                 created_at = datetime.now()
@@ -160,7 +161,7 @@ class TikTokService(BaseService):
                 return target_mp4.name, metadata
 
         except Exception as e:
-            self.logger.error("TikTok download error: %s", str(e))
+            self.logger.error(f"TikTok download error: {str(e)}")
             raise Exception(f"Error downloading TikTok video: {str(e)}")
 
     def _build_metadata(self, unique_id: str, author: str, description: str, target_mp4: Path) -> Dict[str, Any]:
